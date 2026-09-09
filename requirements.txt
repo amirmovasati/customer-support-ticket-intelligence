@@ -1,0 +1,8 @@
+datasets
+pandas
+scikit-learn
+joblib
+transformers
+torch
+accelerate
+evaluate
