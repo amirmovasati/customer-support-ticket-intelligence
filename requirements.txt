@@ -9,3 +9,5 @@ evaluate
 sentence-transformers
 sentencepiece
 sqlalchemy
+fastapi
+uvicorn
