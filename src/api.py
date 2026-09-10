@@ -17,9 +17,11 @@ sys.path.append(str(PROJECT_ROOT / "src"))
 from business_decision import assign_priority
 from response_generation import retrieve_similar_responses, generate_draft_response
 from database import SessionLocal, Ticket, init_db
+import time
+import logging
+from fastapi import Request
 
-OUTPUTS_PATH = Path(r"C:\Projects\SupportTicketOutputs")
-MODEL_DIR = OUTPUTS_PATH / "distilbert_intent_model"
+HF_MODEL_REPO = "amirmovasati/support-ticket-distilbert-intent"
 # endregion
 
 
@@ -31,9 +33,12 @@ ml_models = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Loading models, please wait...")
-    ml_models["tokenizer"] = AutoTokenizer.from_pretrained(MODEL_DIR)
-    ml_models["classifier"] = AutoModelForSequenceClassification.from_pretrained(MODEL_DIR)
-    ml_models["label_encoder"] = joblib.load(OUTPUTS_PATH / "label_encoder.joblib")
+    from huggingface_hub import hf_hub_download
+
+    ml_models["tokenizer"] = AutoTokenizer.from_pretrained(HF_MODEL_REPO)
+    ml_models["classifier"] = AutoModelForSequenceClassification.from_pretrained(HF_MODEL_REPO)
+    label_encoder_path = hf_hub_download(repo_id=HF_MODEL_REPO, filename="label_encoder.joblib")
+    ml_models["label_encoder"] = joblib.load(label_encoder_path)
     init_db()
     print("Models loaded. API ready.")
     yield
@@ -42,6 +47,37 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Customer Support Ticket Intelligence API", lifespan=lifespan)
 # endregion
 
+# region: Monitoring — Request Logging
+# Logs every request's duration and status to a file, and tracks basic
+# in-memory counters for the /metrics endpoint.
+
+logging.basicConfig(
+    filename=str(PROJECT_ROOT / "outputs" / "api_requests.log"),
+    level=logging.INFO,
+    format="%(asctime)s - %(message)s",
+)
+
+request_stats = {"total_requests": 0, "total_errors": 0, "total_response_time": 0.0}
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        request_stats["total_errors"] += 1
+        logging.error(f"{request.method} {request.url.path} - FAILED - {e}")
+        raise
+
+    duration = time.time() - start_time
+    request_stats["total_requests"] += 1
+    request_stats["total_response_time"] += duration
+    if response.status_code >= 400:
+        request_stats["total_errors"] += 1
+
+    logging.info(f"{request.method} {request.url.path} - {response.status_code} - {duration:.3f}s")
+    return response
+# endregion
 
 # region: Request/Response Schemas
 # Pydantic models define and validate the expected input/output shapes.
@@ -119,4 +155,30 @@ def get_ticket(ticket_id: int):
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+@app.get("/metrics")
+def get_metrics():
+    avg_response_time = (
+        request_stats["total_response_time"] / request_stats["total_requests"]
+        if request_stats["total_requests"] > 0
+        else 0
+    )
+    session = SessionLocal()
+    try:
+        total_tickets = session.query(Ticket).count()
+        priority_counts = {
+            p: session.query(Ticket).filter(Ticket.priority == p).count()
+            for p in ["High", "Medium", "Low"]
+        }
+    finally:
+        session.close()
+
+    return {
+        "total_requests": request_stats["total_requests"],
+        "total_errors": request_stats["total_errors"],
+        "avg_response_time_seconds": round(avg_response_time, 3),
+        "total_tickets_in_db": total_tickets,
+        "tickets_by_priority": priority_counts,
+    }
+
 # endregion

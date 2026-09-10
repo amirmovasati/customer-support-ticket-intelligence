@@ -11,3 +11,4 @@ sentencepiece
 sqlalchemy
 fastapi
 uvicorn
+huggingface_hub

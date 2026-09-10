@@ -10,7 +10,8 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CLEAN_DATA_FILE = PROJECT_ROOT / "data" / "bitext_customer_support_clean.csv"
-OUTPUTS_PATH = Path(r"C:\Projects\SupportTicketOutputs")
+import os
+OUTPUTS_PATH = Path(os.environ.get("OUTPUTS_PATH", r"C:\Projects\SupportTicketOutputs"))
 EMBEDDINGS_FILE = OUTPUTS_PATH / "instruction_embeddings.npy"
 
 df = pd.read_csv(CLEAN_DATA_FILE)
@@ -59,7 +60,9 @@ def generate_draft_response(query_text: str, retrieved_examples: list[str]) -> s
     context = "\n".join(f"- {ex}" for ex in retrieved_examples)
     prompt = (
         "You are a customer support assistant. Using the example responses below "
-        "as style and content guidance, write a short, helpful reply to the customer's message.\n\n"
+        "as style and content guidance, write a helpful reply to the customer's message. "
+        "Your reply must: (1) first acknowledge the customer's situation with a brief, "
+        "empathetic sentence, (2) then clearly explain what they need to do next.\n\n"
         f"Example responses:\n{context}\n\n"
         f"Customer message: {query_text}\n\n"
         "Your reply:"
