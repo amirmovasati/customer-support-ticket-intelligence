@@ -8,3 +8,4 @@ accelerate
 evaluate
 sentence-transformers
 sentencepiece
+sqlalchemy
