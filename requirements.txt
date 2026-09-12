@@ -12,3 +12,5 @@ sqlalchemy
 fastapi
 uvicorn
 huggingface_hub
+streamlit
+plotly
